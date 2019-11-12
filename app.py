@@ -33,7 +33,7 @@ def clear():
 def get_redis():
     if not hasattr(g, 'redis'):
         # g.redis = Redis(host="127.0.0.1", db=0, socket_timeout=5)
-        g.redis = StrictRedis(host='redis', port=6379, db=0, password=redis_password, charset="utf-8", decode_responses=True)
+        g.redis = StrictRedis(host='redis', port=6379, db=0, password='redis_password', charset="utf-8", decode_responses=True)
     return g.redis
 
 @app.route("/", methods=['POST','GET'])

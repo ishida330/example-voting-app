@@ -1,0 +1,288 @@
+##########################################################
+# OpenShift template sample
+# oc export bc,is,dc,route,svc,secret > voting.yaml and edit some
+##########################################################  
+apiVersion: v1
+kind: Template
+metadata:
+    name: voting-app
+objects:
+####################  
+# Secret
+####################
+- apiVersion: v1
+  data:
+#   echo "redis_password" | base64
+    database-password: cmVkaXNfcGFzc3dvcmQ=
+  kind: Secret
+  metadata:
+    annotations:
+      template.openshift.io/expose-password: '{.data[''database-password'']}'
+    creationTimestamp: null
+    labels:
+      app: redis-ephemeral
+      template: redis-ephemeral-template
+    name: redis
+  type: Opaque
+####################  
+# BC - voting
+####################
+- apiVersion: v1
+  kind: BuildConfig
+  metadata:
+    name: voting
+  spec:
+    nodeSelector: null
+    output:
+      to:
+        kind: ImageStreamTag
+        name: 'voting:latest'
+    postCommit: {}
+    resources: {}
+    runPolicy: Serial
+    source:
+      git:
+        ref: master
+        uri: 'https://github.com/ishida330/example-voting-app.git'
+      type: Git
+    strategy:
+      sourceStrategy:
+        from:
+          kind: ImageStreamTag
+          name: 'python:3.6'
+          namespace: openshift
+      type: Source
+    triggers:
+      - imageChange: {}
+        type: ImageChange
+      - type: ConfigChange
+      - generic:
+          secret: c8670d976eaefa4a
+        type: Generic
+      - github:
+          secret: 9e98a26e861c2c57
+        type: GitHub
+####################  
+# ImageStream
+####################
+- apiVersion: v1
+  kind: ImageStream
+  metadata:
+    name: voting
+  spec:
+    lookupPolicy:
+      local: false
+    tags:
+    - annotations: null
+#      from:
+#        kind: DockerImage
+#        name: 172.30.1.1:5000/voting/voting:latest
+      generation: null
+      importPolicy: {}
+      name: latest
+      referencePolicy:
+        type: ""
+####################  
+# DC - redis
+####################
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    name: redis
+  spec:
+    replicas: 1
+    revisionHistoryLimit: 10
+    selector:
+      name: redis
+    strategy:
+      activeDeadlineSeconds: 21600
+      recreateParams:
+        timeoutSeconds: 600
+      resources: {}
+      type: Recreate
+    template:
+      metadata:
+        creationTimestamp: null
+        labels:
+          name: redis
+      spec:
+        containers:
+        - env:
+          - name: REDIS_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                key: database-password
+                name: redis
+          image: 
+          imagePullPolicy: IfNotPresent
+          livenessProbe:
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            successThreshold: 1
+            tcpSocket:
+              port: 6379
+            timeoutSeconds: 1
+          name: redis
+          ports:
+          - containerPort: 6379
+            protocol: TCP
+          readinessProbe:
+            exec:
+              command:
+              - /bin/sh
+              - -i
+              - -c
+              - test "$(redis-cli -h 127.0.0.1 -a $REDIS_PASSWORD ping)" == "PONG"
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources:
+            limits:
+              memory: 512Mi
+          securityContext:
+            capabilities: {}
+            privileged: false
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          volumeMounts:
+          - mountPath: /var/lib/redis/data
+            name: redis-data
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+        volumes:
+        - emptyDir: {}
+          name: redis-data
+    test: false
+    triggers:
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+        - redis
+        from:
+          kind: ImageStreamTag
+          name: redis:3.2
+          namespace: openshift
+        lastTriggeredImage: 
+      type: ImageChange
+    - type: ConfigChange
+####################  
+# DC - voting
+####################
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    name: voting
+  spec:
+    replicas: 1
+    selector:
+      deploymentconfig: voting
+    strategy:
+      activeDeadlineSeconds: 21600
+      resources: {}
+      rollingParams:
+        intervalSeconds: 1
+        maxSurge: 25%
+        maxUnavailable: 25%
+        timeoutSeconds: 600
+        updatePeriodSeconds: 1
+      type: Rolling
+    template:
+      metadata:
+        creationTimestamp: null
+        labels:
+          app: voting
+          deploymentconfig: voting
+      spec:
+        containers:
+        - image: 
+          imagePullPolicy: Always
+          name: voting
+          ports:
+          - containerPort: 8080
+            protocol: TCP
+          resources: {}
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+        dnsPolicy: ClusterFirst
+        restartPolicy: Always
+        schedulerName: default-scheduler
+        securityContext: {}
+        terminationGracePeriodSeconds: 30
+    test: false
+    triggers:
+    - imageChangeParams:
+        automatic: true
+        containerNames:
+        - voting
+        from:
+          kind: ImageStreamTag
+          name: voting:latest
+        lastTriggeredImage: 
+      type: ImageChange
+    - type: ConfigChange
+####################  
+# Service - redis
+####################
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: redis
+  spec:
+    ports:
+    - name: redis
+      port: 6379
+      protocol: TCP
+      targetPort: 6379
+    selector:
+      name: redis
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+####################  
+# Service - voting
+####################
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: voting
+  spec:
+    ports:
+    - name: 8080-tcp
+      port: 8080
+      protocol: TCP
+      targetPort: 8080
+    selector:
+      deploymentconfig: voting
+    sessionAffinity: None
+    type: ClusterIP
+  status:
+    loadBalancer: {}
+####################  
+# Route
+####################
+- apiVersion: v1
+  kind: Route
+  metadata:
+    name: voting
+  spec:
+    port:
+      targetPort: 8080-tcp
+    to:
+      kind: Service
+      name: voting
+      weight: 100
+    wildcardPolicy: None
+####################
+# Environment Variables
+####################
+parameters:
+- name: DUMMY_PARAMETER
+  description: "You Can Set Environment Variable's Value at Deployment Time"
+  value: dummy-value

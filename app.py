@@ -13,7 +13,7 @@ hostname = socket.gethostname()
 app = Flask(__name__)
 
 def cleardb():
-    redis = StrictRedis(host='redis', port=6379, db=0, password=redis_password, charset="utf-8", decode_responses=True)
+    redis = StrictRedis(host='redis', port=6379, db=0, password='redis_password', charset="utf-8", decode_responses=True)
     redis.flushdb()
 
 @app.route("/clear", methods=['POST','GET'])
